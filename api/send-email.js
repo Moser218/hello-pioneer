@@ -3,7 +3,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { to, title, body } = req.body
+  const { to, title, body, noteId } = req.body
   if (!to || !title || !body) {
     return res.status(400).json({ error: 'Missing required fields' })
   }
@@ -18,6 +18,7 @@ export default async function handler(req, res) {
       from: 'Pioneer Species <onboarding@resend.dev>',
       to,
       subject: `Note shared with you: ${title}`,
+      tags: noteId ? [{ name: 'note_id', value: noteId }] : [],
       html: `
         <!DOCTYPE html>
         <html>
@@ -56,6 +57,27 @@ export default async function handler(req, res) {
   if (!response.ok) {
     const error = await response.json()
     return res.status(500).json({ error: error.message || 'Failed to send email' })
+  }
+
+  const { id: messageId } = await response.json()
+
+  // Record the "sent" event in Supabase
+  if (messageId) {
+    await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/email_events`, {
+      method: 'POST',
+      headers: {
+        'apikey': process.env.VITE_SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        message_id: messageId,
+        note_id: noteId || null,
+        recipient: to,
+        event_type: 'sent',
+      }),
+    })
   }
 
   return res.status(200).json({ ok: true })
